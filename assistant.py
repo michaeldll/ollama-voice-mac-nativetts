@@ -2,7 +2,6 @@ import sys
 import json
 import wave
 import time
-import pyttsx3
 import torch
 import requests
 import soundfile
@@ -14,6 +13,7 @@ import pyaudio
 import whisper
 import logging
 import threading
+import subprocess
 import queue
 
 # Configure logging
@@ -54,9 +54,6 @@ class Assistant:
 
         self.audio = pyaudio.PyAudio()
 
-        self.tts = pyttsx3.init("nsss");
-        self.tts.setProperty('rate', self.tts.getProperty('rate') - 20)
-
         try:
             self.audio.open(format=INPUT_FORMAT,
                             channels=INPUT_CHANNELS,
@@ -68,6 +65,9 @@ class Assistant:
             self.wait_exit()
 
         self.display_message(self.config.messages.loadingModel)
+        # Log whisper variable:
+        logging.info(f"Loading whisper model from path: {whisper}")
+
         self.model = whisper.load_model(self.config.whisperRecognition.modelPath)
         self.context = []
 
@@ -259,29 +259,20 @@ class Assistant:
 
     def text_to_speech(self, text):
         logging.info(f"Converting text to speech: {text}")
-        print('\nAI:\n', text.strip())
+        # print('\nAI:\n', text.strip())
 
         def play_speech():
             try:
-                logging.info("Initializing TTS engine")
-                engine = pyttsx3.init()
-                
-                # Adjust the speech rate (optional)
-                rate = engine.getProperty('rate')
-                engine.setProperty('rate', rate - 50)  # Decrease the rate by 50 units
-                
-                # Add a short delay before converting text to speech
-                time.sleep(0.5)  # Adjust the delay as needed
-                
-                logging.info("Converting text to speech")
-                engine.say(text)
-                engine.runAndWait()
+                # Escape the text before converting it to speech by cleaning special characters
+                sanitizedText = text.replace('"', '\\"')
+                sanitizedText = text.replace("'", "\\'")
+                self.speech_subprocess = subprocess.Popen([f"say \"{sanitizedText}\""], shell=True)
                 logging.info("Speech playback completed")
             except Exception as e:
                 logging.error(f"An error occurred during speech playback: {str(e)}")
 
-        speech_thread = threading.Thread(target=play_speech)
-        speech_thread.start()
+        self.speech_thread = threading.Thread(target=play_speech)
+        self.speech_thread.start()
 
 
 def main():
@@ -299,6 +290,9 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == push_to_talk_key:
                     logging.info("Push-to-talk key pressed")
+                    # Stop speech if in progress
+                    ass.speech_subprocess.terminate()
+
                     speech = ass.waveform_from_mic(push_to_talk_key)
 
                     transcription = ass.speech_to_text(waveform=speech)
